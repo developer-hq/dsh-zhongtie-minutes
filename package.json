@@ -1,0 +1,45 @@
+{
+  "name": "@local/zhongtie-minutes",
+  "version": "0.1.0",
+  "description": "中铁纪要：中铁建工会议纪要工作台——录音/上传、MiniMax 逐字稿、基于 skill 生成符合集团精神的会议纪要，并对存疑内容弹窗确认。",
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "skills/**",
+    "rules/**",
+    "README.md"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/developer-hq/dsh-zhongtie-minutes.git"
+  },
+  "homepage": "https://github.com/developer-hq/dsh-zhongtie-minutes#readme",
+  "bugs": {
+    "url": "https://github.com/developer-hq/dsh-zhongtie-minutes/issues"
+  }
+}

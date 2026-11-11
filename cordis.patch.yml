@@ -1,0 +1,15 @@
+- insert:
+    - id: zhongtie-minutes
+      name: '@local/zhongtie-minutes'
+      config:
+        # MiniMax 开放平台。语音识别走 POST /v1/speech_to_text（multipart，model=asr-1.0）
+        baseUrl: https://api.minimaxi.com
+        asrModel: asr-1.0
+        # 建议留空：优先读环境变量 MINIMAX_API_KEY，其次读 ~/.dsh/zhongtie-minutes/api-key
+        apiKey: ''
+        # 纪要输出目录；留空使用 ~/Documents/中铁纪要
+        outputDir: ''
+        # 单次上传音频上限（MB）
+        maxAudioMB: 500
+        # 逐字稿分片长度（秒）。MiniMax 未公开单请求上限，默认 5 分钟一片
+        chunkSeconds: 300
