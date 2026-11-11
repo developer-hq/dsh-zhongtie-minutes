@@ -13,3 +13,6 @@
         maxAudioMB: 500
         # 逐字稿分片长度（秒）。MiniMax 未公开单请求上限，默认 5 分钟一片
         chunkSeconds: 300
+        # 生成纪要时的推理强度。deepseek-flash 用 max 会把 token 全花在思考上，
+        # 正文可能为空，因此默认 low；可选 low / high / max。
+        reasoningEffort: low

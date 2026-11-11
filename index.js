@@ -27,7 +27,12 @@ const DEFAULT_CONFIG = {
   outputDir: '',
   maxAudioMB: 500,
   chunkSeconds: 300,
+  // deepseek-flash 默认 reasoningEffort=max 时会把 token 全花在思考上，
+  // 正文经常为空。纪要生成用 low 即可，速度也快。
+  reasoningEffort: 'low',
 };
+
+let activeConfig = { ...DEFAULT_CONFIG };
 
 const MEETING_TYPES = ['党委会', '董事会', '总经理办公会', '专题会', '项目例会', '安全生产会', '其他'];
 
@@ -203,30 +208,74 @@ function llmTarget(ctx) {
   return { llm, selection };
 }
 
-async function complete(ctx, { system, prompt, maxTokens = 4000 }) {
+const DEFAULT_REASONING_EFFORT = 'low';
+
+async function streamAttempt(ctx, { system, prompt, maxTokens, reasoningEffort }) {
   const { llm, selection } = llmTarget(ctx);
-  let output = '';
-  const stream = llm.stream({
+  const options = {
     provider: selection.provider,
     model: selection.model,
     system,
     messages: [{ role: 'user', content: [{ type: 'text', text: prompt }] }],
     maxTokens,
-  });
+  };
+  if (reasoningEffort) options.reasoningEffort = reasoningEffort;
+
+  let stream;
+  try {
+    stream = llm.stream(options);
+  } catch (error) {
+    // 个别模型不支持 reasoningEffort（如 glm-5.2 只有 none/high/xhigh），退回默认。
+    if (reasoningEffort && /reasoning/i.test(String(error?.message || ''))) {
+      return streamAttempt(ctx, { system, prompt, maxTokens, reasoningEffort: null });
+    }
+    throw error;
+  }
+
+  let output = '';
+  let thinking = '';
+  let finishKind = 'stop';
   for await (const chunk of stream) {
     if (chunk.type === 'text-delta') {
       output += chunk.text || '';
+    } else if (chunk.type === 'reasoning-delta') {
+      thinking += chunk.text || '';
     } else if (chunk.type === 'finish') {
-      const kind = chunk.reason?.kind;
-      if (kind === 'error' || kind === 'aborted') {
-        const detail = chunk.reason?.error?.message || chunk.reason?.message || kind;
+      finishKind = chunk.reason?.kind || 'stop';
+      if (finishKind === 'error' || finishKind === 'aborted') {
+        const detail = chunk.reason?.error?.message || chunk.reason?.message || finishKind;
         fail(`模型生成中断：${detail}`, 502);
       }
     }
   }
-  const text = output.trim();
-  if (!text) fail('模型没有返回内容，请稍后重试', 502);
-  return text;
+  return { text: output.trim(), thinkingChars: thinking.length, finishKind };
+}
+
+async function complete(ctx, { system, prompt, maxTokens = 8000, reasoningEffort = activeConfig.reasoningEffort || DEFAULT_REASONING_EFFORT }) {
+  let attempt = await streamAttempt(ctx, { system, prompt, maxTokens, reasoningEffort });
+
+  // deepseek-flash 在 reasoningEffort=max 时可能把全部预算花在思考上，
+  // 一个正文 token 都没输出。这里翻倍预算重试一次，并压到 low。
+  if (!attempt.text && attempt.finishKind === 'max-tokens') {
+    ctx.logger?.warn?.(
+      `zhongtie-minutes: 首次生成达到 token 上限（思考 ${attempt.thinkingChars} 字），翻倍重试`,
+    );
+    attempt = await streamAttempt(ctx, {
+      system,
+      prompt,
+      maxTokens: Math.min(maxTokens * 2, 60000),
+      reasoningEffort: 'low',
+    });
+  }
+
+  if (!attempt.text) {
+    fail(
+      `模型没有输出正文（结束原因：${attempt.finishKind}，思考 ${attempt.thinkingChars} 字）。`
+        + '可重试；若反复出现，到「设置 → 模型」把推理强度调低。',
+      502,
+    );
+  }
+  return attempt.text;
 }
 
 function parseJsonArray(text) {
@@ -447,7 +496,7 @@ async function handle(ctx, config, req, res) {
     const text = await complete(ctx, {
       system: QUESTION_SYSTEM,
       prompt: buildQuestionPrompt({ transcript, meta: body.meta || {} }),
-      maxTokens: 1200,
+      maxTokens: 6000,
     });
     let parsed = parseJsonArray(text);
     if (!parsed) {
@@ -455,7 +504,7 @@ async function handle(ctx, config, req, res) {
       const retry = await complete(ctx, {
         system: QUESTION_SYSTEM,
         prompt: `把下面的内容整理为要求的 JSON 数组，只输出数组本身：\n${text.slice(0, 4000)}`,
-        maxTokens: 1200,
+        maxTokens: 6000,
       });
       parsed = parseJsonArray(retry);
     }
@@ -482,7 +531,7 @@ async function handle(ctx, config, req, res) {
         answers: body.answers || {},
         lengthMode: body.lengthMode,
       }),
-      maxTokens: body.lengthMode === 'detailed' ? 9000 : 6000,
+      maxTokens: body.lengthMode === 'detailed' ? 24000 : 16000,
     });
     const cleaned = markdown.replace(/^```(?:markdown|md)?\s*/i, '').replace(/```\s*$/, '').trim();
     sendJson(res, 200, { ok: true, markdown: cleaned });
@@ -513,6 +562,7 @@ export const name = 'zhongtie-minutes';
 
 export function apply(ctx, config) {
   const merged = { ...DEFAULT_CONFIG, ...(config || {}) };
+  activeConfig = merged;
 
   try {
     ctx.effect(() =>
@@ -542,6 +592,7 @@ export function apply(ctx, config) {
   } catch (error) {
     ctx.logger?.warn?.(`zhongtie-minutes: 路由注册失败：${error?.message || error}`);
   }
+  ctx.logger?.info?.(`zhongtie-minutes: 已加载（reasoningEffort=${merged.reasoningEffort || 'low'}）`);
 }
 
 export const inject = ['webServer'];

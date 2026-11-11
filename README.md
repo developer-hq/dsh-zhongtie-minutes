@@ -67,6 +67,7 @@ chmod 600 ~/.dsh/zhongtie-minutes/api-key
 | `outputDir` | 空 → `~/Documents/中铁纪要/` | 纪要保存目录 |
 | `maxAudioMB` | `500` | 单次上传上限 |
 | `chunkSeconds` | `300` | 逐字稿分片长度（秒） |
+| `reasoningEffort` | `low` | 生成纪要的推理强度。`deepseek-flash` 用 `max` 会把 token 全花在思考上，正文可能为空；可选 `low` / `high` / `max` |
 
 ## 使用流程
 
